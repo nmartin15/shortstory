@@ -1,213 +1,106 @@
-# Short Story Pipeline
+# shortstoryfun
 
-This repository provides a modular pipeline for short story creation that prioritizes **distinctive voice, memorable characters, and non-generic language**. Every word must earn its place.
+Private, single-user short-story drafting tool. It produces **raw drafts** (about 2,000–7,500 words) for you to rewrite. It is not a product, not multi-user, and not a publishing platform.
 
-> **See [CONCEPTS.md](CONCEPTS.md) for core principles and terminology.**
+## Setup
 
-- Premise capture (unique idea, distinctive character, resonant theme)
-- Outline (beginning, middle, end with unexpected beats)
-- Scaffolding (POV, tone, style that creates voice)
-- Drafting (prose narrative with precision and pop)
-- Revision (language sharpening, character deepening, cliché elimination)
+1. Create an [OpenRouter API key](https://openrouter.ai/keys) **with a spending limit**.
+2. Copy env template and edit:
 
-## Features
-- **AI-powered story generation** via Google Gemini API
-- **Memorability Scorer** - Multi-dimensional scoring (language precision, character uniqueness, voice strength, beat originality)
-- **Full Outline Generation** - Detailed beats with unexpected moments and voice opportunities
-- **Full Scaffolding with Voice Development** - Narrative voice, character voice profiles, conflict mapping, sensory specificity
-- Enforces word count (≤ 7500 words) while maximizing impact
-- Anti-generic filters (see [CONCEPTS.md](CONCEPTS.md))
-- Voice development tools (see [CONCEPTS.md](CONCEPTS.md))
-- Character distinctiveness validation (see [CONCEPTS.md](CONCEPTS.md))
-- Conflict-first scaffolding for clarity
-- Modular design for extensibility
-- Automatic fallback to template-based generation if LLM unavailable
+```bash
+cp .env.example .env
+# set OPENROUTER_API_KEY=...
+```
 
-## Getting Started
+3. Install deps (Python 3.10+ recommended):
 
-### Prerequisites
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt  # for tests
+```
 
-- **Google Gemini API key** (see [SETUP_GOOGLE.md](SETUP_GOOGLE.md) for setup)
-- **Python 3.9+** with pip
+4. Put short samples of **your own writing** in `style.yaml` under `voice_references`.
 
-### Web Application (Recommended)
+## First story (CLI)
 
-1. **Get API key** from [Google AI Studio](https://makersuite.google.com/app/apikey)
+```bash
+python shortstory.py spark "A night clerk in Flagstaff finds a ledger that rewrites itself"
+python shortstory.py premise flagstaff-ledger
+# edit stories/flagstaff-ledger/01_premise.md — pick or rewrite one option
+python shortstory.py approve-premise flagstaff-ledger
+python shortstory.py outline flagstaff-ledger --framework story_circle --words 5000
+# edit stories/flagstaff-ledger/02_outline.md if needed
+python shortstory.py approve-outline flagstaff-ledger
+python shortstory.py draft flagstaff-ledger
+python shortstory.py continuity flagstaff-ledger
+python shortstory.py assemble flagstaff-ledger
+python shortstory.py cost flagstaff-ledger
+python shortstory.py diff flagstaff-ledger
+```
 
-2. **Set environment variable:**
-   ```bash
-   export GOOGLE_API_KEY=your_api_key_here
-   ```
+Premium model (manual only):
 
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+python shortstory.py draft flagstaff-ledger --premium
+```
 
-4. **Verify setup (optional):**
-   ```bash
-   python check_setup.py
-   ```
+Export: `md`, `txt`, `docx`, `pdf`, `epub`:
 
-5. **Start the web server:**
-   ```bash
-   python app.py
-   ```
+```bash
+python shortstory.py export flagstaff-ledger --format docx
+```
 
-5. **Open your browser** to `http://localhost:5000`
+## Minimal local UI
 
-6. **Enter your story idea, character, and theme**, then click "Generate Story"
+```bash
+python webapp.py
+# open http://127.0.0.1:5000
+```
 
-7. **Edit the generated story** in the text editor
+## Models (from `.env`, never hardcoded in call sites)
 
-> **Note:** If the Google API is not available, the pipeline will automatically fall back to template-based generation.
+| Var | Default | When |
+|-----|---------|------|
+| `DRAFT_MODEL` | `qwen/qwen3.8-27b` | Default for all stages |
+| (alt) | `deepseek/deepseek-v4.1-flash` | Set as `DRAFT_MODEL` if you prefer |
+| `PREMIUM_MODEL` | `moonshotai/kimi-k3.1-pro` | Only with `--premium` / UI checkbox |
+| `BUDGET_CAP_USD` | e.g. `1.00` | Stops a run before exceeding |
 
-### Command Line Interface (CLI)
+Prices for estimates live in `config/model_prices.yaml`.
 
-The CLI provides local story management without needing the web UI:
+## Story folder layout
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```text
+stories/<slug>/
+  00_spark.md
+  01_premise.md
+  02_outline.md
+  scenes/01.md …
+  03_continuity.md
+  draft_v1.md
+  provenance.jsonl
+  costs.jsonl
+  meta.yaml
+```
 
-2. **List all stories:**
-   ```bash
-   python cli.py list-stories
-   # Or with options:
-   python cli.py list-stories --format json --page 1 --per-page 10
-   ```
+## Non-negotiables
 
-3. **Delete a story:**
-   ```bash
-   python cli.py delete-story <story_id>
-   # Skip confirmation:
-   python cli.py delete-story <story_id> --confirm
-   ```
+1. Local / private only
+2. You approve premise + outline before prose
+3. Every model call is logged; `diff` shows how much you changed
+4. No living-author imitation; no franchise IP; voice refs from your writing only
+5. Hosted models via OpenRouter only
+6. Cheap volume drafting; premium is opt-in
+7. Quality over features — scene-by-scene drafts
 
-4. **Export a story:**
-   ```bash
-   python cli.py export-story <story_id> pdf
-   python cli.py export-story <story_id> markdown -o my_story.md
-   # Supported formats: pdf, markdown, txt, docx, epub
-   ```
+## Tests
 
-5. **Validate a story:**
-   ```bash
-   python cli.py validate-story <story_id>
-   # With detailed results:
-   python cli.py validate-story <story_id> --verbose
-   ```
+```bash
+pytest tests/test_provider_openrouter.py tests/test_cost_budget.py \
+  tests/test_checkpoints_and_fs.py tests/test_provenance_diff.py \
+  tests/test_cliche_repetition.py -q
+```
 
-See `python cli.py --help` for more information.
-
-### Command Line Usage (Pipeline Examples)
-
-1. **Set up Google API key** (see [SETUP_GOOGLE.md](SETUP_GOOGLE.md))
-2. **Install dependencies:** `pip install -r requirements.txt`
-3. **Run pipeline examples** in `examples/`
-
-See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for repository layout.
-
-## Documentation
-
-### Core Documentation
-- **[CONCEPTS.md](CONCEPTS.md)** - Core principles and terminology (single source of truth)
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Application architecture with service layer (✅ **NEW**)
-- **[pipeline.md](pipeline.md)** - Pipeline architecture and stages
-- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Code organization
-
-### Setup & Configuration
-- **[SETUP_GOOGLE.md](SETUP_GOOGLE.md)** - Google Gemini API setup guide
-- **[STORAGE_IMPLEMENTATION.md](STORAGE_IMPLEMENTATION.md)** - Storage backends and configuration
-- **[STORAGE_MIGRATION.md](STORAGE_MIGRATION.md)** - Migration from file to database storage
-
-### Deployment & Production
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment guide
-- **[PRODUCTION_IMPROVEMENTS.md](PRODUCTION_IMPROVEMENTS.md)** - Production improvements summary
-- **[BACKGROUND_JOBS.md](BACKGROUND_JOBS.md)** - Background job processing with RQ
-- **[CI_CD.md](CI_CD.md)** - CI/CD pipeline documentation (✅ **NEW**)
-
-### Development & Testing
-- **[TESTING.md](TESTING.md)** - Testing guide
-- **[TEST_COVERAGE_IMPROVEMENTS.md](TEST_COVERAGE_IMPROVEMENTS.md)** - Test coverage improvement plans
-
-### Security
-- **Security Features** - See Security section below
-
-### Data Models & Architecture
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Application architecture with service layer (✅ **NEW**)
-- **[STORY_JSON_SCHEMA.md](stories/STORY_JSON_SCHEMA.md)** - Story JSON file structure
-- **[STORY_MODEL_STANDARDIZATION.md](STORY_MODEL_STANDARDIZATION.md)** - Story model standardization approach (✅ **Now using Pydantic models**)
-- **[ARCHITECTURAL_REFACTORING.md](ARCHITECTURAL_REFACTORING.md)** - Architectural refactoring suggestions
-
-## Production Features
-
-- ✅ **Enhanced error handling** with structured responses and logging
-- ✅ **Rate limiting** to prevent abuse and ensure fair resource usage
-- ✅ **Production-ready deployment** with Gunicorn configuration
-- ✅ **Comprehensive logging** for monitoring and debugging
-- ✅ **Environment-based configuration** for development and production
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment instructions.
-
-## Security
-
-This application implements multiple security measures to protect against common vulnerabilities:
-
-### Input Sanitization
-
-- **Filename Sanitization**: All user-provided titles and story IDs are sanitized before use in file operations to prevent:
-  - Path traversal attacks (`../`, `/`, `\`)
-  - Command injection (`|`, `&`, `;`, `` ` ``, `$`)
-  - OS-specific issues (Windows forbidden characters: `:`, `*`, `?`, `<`, `>`, `"`)
-  - XSS in download attributes (script tags, HTML entities, event handlers)
-
-- **XSS Prevention**: All user-controlled data displayed in the UI is properly escaped:
-  - Story titles, premises, and metadata in the story browser
-  - Validation results including clichés and suggestions
-  - Revision history data
-  - All API responses are sanitized before rendering
-
-### Model Security
-
-- **Dynamic Model Validation**: The LLM client fetches available models dynamically from the API to prevent using deprecated or insecure models
-- **Fallback Protection**: If dynamic fetching fails, a fallback list is used with security warnings logged
-- **Model Name Validation**: All model names are validated against the current API list before use
-
-### CDN Security
-
-- **Version Pinning**: External JavaScript libraries are pinned to specific versions (e.g., Lucide icons)
-- **Font Preloading**: Critical fonts are preloaded to improve performance and reduce dependency on external CDNs
-- **Security Headers**: All external resources use `crossorigin="anonymous"` for CORS protection
-- **Self-Hosting Recommendations**: Documentation includes guidance for self-hosting assets in production for better security control
-
-### API Security
-
-- **Input Validation**: All API endpoints validate and sanitize input data
-- **Error Handling**: Structured error responses prevent information leakage
-- **Rate Limiting**: API endpoints are rate-limited to prevent abuse
-
-### Best Practices
-
-1. **Never trust user input**: All user-provided data is sanitized before use
-2. **Defense in depth**: Multiple layers of validation and sanitization
-3. **Security logging**: Security-related events (e.g., fallback model list usage) are logged
-4. **Regular updates**: Keep dependencies updated and review security advisories
-
-### Reporting Security Issues
-
-If you discover a security vulnerability, please report it responsibly. Do not open public issues for security vulnerabilities.
-
-## Roadmap
-- ✅ Google Gemini API integration
-- ✅ AI-powered story generation and revision
-- ✅ Production deployment setup
-- ✅ Error handling and rate limiting
-- ✅ Full outline generation with detailed beats
-- ✅ Full scaffolding with voice development
-- ✅ Memorability scorer with multi-dimensional analysis
-- ✅ Core distinctiveness tools (see [CONCEPTS.md](CONCEPTS.md))
-- ✅ **Pydantic model integration** - Type-safe pipeline with automatic validation
-- Integrate with flash fiction pipeline for hybrid workflows
-
+Tests use `MockProvider` and never call a real model.
