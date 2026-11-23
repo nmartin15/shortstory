@@ -1,43 +1,20 @@
-# Short Story Pipeline Dependencies
+# shortstoryfun — private local drafting tool
 
-# Web framework
+# Web (minimal local UI)
 flask>=3.0.0
 flask-cors>=4.0.0
-flask-limiter>=3.5.0
 
-# LLM for story generation
-google-generativeai>=0.3.0
+# OpenRouter (OpenAI-compatible)
+openai>=1.40.0
 
-# Environment variable management
+# Config / env
 python-dotenv>=1.0.0
+PyYAML>=6.0
 
-# CLI framework
+# CLI
 click>=8.0.0
 
-# PDF generation
+# Exports
 reportlab>=4.0.0
-
-# DOCX export
 python-docx>=1.0.0
-
-# EPUB export
 ebooklib>=0.18
-
-# Production WSGI server
-gunicorn>=21.2.0
-
-# Redis for rate limiting (optional, but recommended for production)
-redis>=5.0.0
-
-# Background job queue
-rq>=1.15.0
-rq-dashboard>=0.6.1
-
-# Token counting for accurate LLM token estimation
-tiktoken>=0.5.0
-
-# Core utilities (to be added)
-# - nltk>=3.8
-# - spacy>=3.4.0
-# - pydantic>=2.0.0
-

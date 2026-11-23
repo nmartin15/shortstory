@@ -1,16 +1,30 @@
-"""
-LLM Provider implementations.
+"""LLM provider implementations (OpenRouter by default)."""
 
-This module provides concrete implementations of LLM providers.
-Currently supports Google Gemini API via GeminiProvider.
-"""
-
-from .gemini import GeminiProvider
-from .factory import create_provider, get_default_provider
+from .base import BaseProvider, GenerateResult
+from .factory import (
+    ALTERNATE_DRAFT_MODEL,
+    DEFAULT_DRAFT_MODEL,
+    DEFAULT_PREMIUM_MODEL,
+    create_provider,
+    get_default_provider,
+    get_draft_model_name,
+    get_premium_model_name,
+    reset_default_provider,
+)
+from .mock import MockProvider
+from .openrouter import OpenAICompatibleProvider
 
 __all__ = [
-    "GeminiProvider",
+    "ALTERNATE_DRAFT_MODEL",
+    "BaseProvider",
+    "DEFAULT_DRAFT_MODEL",
+    "DEFAULT_PREMIUM_MODEL",
+    "GenerateResult",
+    "MockProvider",
+    "OpenAICompatibleProvider",
     "create_provider",
     "get_default_provider",
+    "get_draft_model_name",
+    "get_premium_model_name",
+    "reset_default_provider",
 ]
-

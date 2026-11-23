@@ -1,0 +1,22 @@
+# Dollars per 1M tokens. Update when OpenRouter prices change.
+# Used only for local cost estimates — never hardcoded as model selection.
+
+models:
+  qwen/qwen3.8-27b:
+    input: 0.035
+    output: 1.50
+    cached_input: 0.0175
+  deepseek/deepseek-v4.1-flash:
+    input: 0.0498
+    output: 0.1992
+    cached_input: 0.000996
+  moonshotai/kimi-k3.1-pro:
+    input: 0.2403
+    output: 8.402
+    cached_input: 0.20
+
+# Fallback when a model slug is missing from the table above
+default:
+  input: 0.50
+  output: 2.00
+  cached_input: 0.25

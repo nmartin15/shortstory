@@ -1,0 +1,40 @@
+# Cursor AI Analysis Configuration — shortstoryfun
+
+## Purpose
+- Private single-user drafting tool. Raw drafts only — never present output as finished.
+- Author approves premise and outline before any prose is drafted.
+
+## Model Configuration
+- **Provider**: OpenRouter only (`https://openrouter.ai/api/v1`), via `OpenAICompatibleProvider`
+- **No local models**: no Ollama, no GPU, no on-device inference
+- **Env (never hardcode model slugs in call sites)**:
+  - `DRAFT_MODEL` default `qwen/qwen3.8-27b` (alt: `deepseek/deepseek-v4.1-flash`)
+  - `PREMIUM_MODEL` default `moonshotai/kimi-k3.1-pro` — only when user passes `--premium`
+- **Factory**: `create_provider` / `get_default_provider` in `src/shortstory/providers/`
+- **Interface**: `BaseProvider.generate(system, prompt, temperature, max_tokens) -> GenerateResult`
+
+## Pipeline
+- Stages: spark → premise (checkpoint) → outline (checkpoint) → scene draft → quality → continuity → assemble
+- Frameworks: story_circle, try_fail, mice
+- Storage: `stories/<slug>/` Markdown + `provenance.jsonl` + `costs.jsonl`
+- Prompts live in `prompts/*.md`
+
+## Cost & Provenance
+- Log tokens and $ cost every call; enforce `BUDGET_CAP_USD`
+- Provenance JSONL per model call; `diff` reports % human-changed
+
+## IP Safety
+- Reject sparks naming living authors or franchises (`style/ip_gate.py`)
+- Voice references only from author's `style.yaml`
+
+## Interface
+- CLI primary (`python -m src.shortstory.cli_app` / `cli_app.py`)
+- Minimal local web UI: `webapp.py` on 127.0.0.1 only
+
+## Testing
+- pytest; mock provider only — never call a real model in tests
+
+## Do not
+- Add Redis/RQ, rate limits, gunicorn/Docker deploy, multi-user auth, or public hosting
+- Auto-select premium model
+- Fall back to formulaic template prose generators
