@@ -5,7 +5,7 @@ flask>=3.0.0
 flask-cors>=4.0.0
 
 # OpenRouter (OpenAI-compatible)
-openai>=1.40.0
+openai>=3.57.0
 
 # Config / env
 python-dotenv>=1.0.0
