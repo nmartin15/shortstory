@@ -718,8 +718,12 @@ def generate_outline_structure(
     Returns:
         Outline structure dictionary
     """
-    if client is None:
-        client = get_default_client()
+    # Note: Currently this function doesn't actually use the client,
+    # it just returns a template-based outline. We only get client if needed.
+    # For now, we'll skip client initialization to avoid API key requirements in tests.
+    # TODO: Implement actual LLM-based outline generation or make client optional
+    # if client is None:
+    #     client = get_default_client()
     
     # Simple template-based outline generation
     # In a full implementation, this would use LLM to generate detailed beats
@@ -756,8 +760,11 @@ def generate_scaffold_structure(
     Returns:
         Scaffold structure dictionary
     """
-    if client is None:
-        client = get_default_client()
+    # Note: Currently this function doesn't actually use the client,
+    # it just returns a template-based scaffold. We only get client if needed.
+    # TODO: Implement actual LLM-based scaffold generation or make client optional
+    # if client is None:
+    #     client = get_default_client()
     
     # Extract constraints from genre config
     constraints = genre_config.get("constraints", {})

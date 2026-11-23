@@ -179,6 +179,13 @@ WRITING QUALITY REQUIREMENTS:
 - Avoid generic plot beats and predictable story structures
 - Develop distinctive narrative voice that matches the story's tone
 
+CRITICAL DIALOGUE REQUIREMENT:
+- The story MUST include substantial dialogue between characters
+- Use dialogue to reveal character, advance plot, and create tension
+- Include multiple conversations and exchanges throughout the story
+- Dialogue should feel natural and serve the narrative purpose
+- Do not rely solely on narration - dialogue is essential for a complete story
+
 Provide ONLY the story text, without any metadata or headers."""
 
 
@@ -248,6 +255,8 @@ def build_story_user_prompt(params: StoryParams) -> Tuple[str, int, int, int]:
     prompt_parts.append(f"- TARGET: Aim for {target_words:,} words")
     prompt_parts.append(f"- MAXIMUM: Do not exceed {STORY_MAX_WORDS:,} words")
     prompt_parts.append(f"- DO NOT STOP WRITING until you have written at least {STORY_MIN_WORDS:,} words")
+    prompt_parts.append(f"- The story MUST include substantial dialogue - use conversations to develop characters and advance the plot")
+    prompt_parts.append(f"- Include multiple dialogue exchanges throughout the story - dialogue is essential for a complete narrative")
     prompt_parts.append(f"- If you find yourself ending the story before {STORY_MIN_WORDS:,} words, you MUST continue with more scenes, dialogue, character development, or plot resolution")
     
     prompt = "\n".join(prompt_parts)

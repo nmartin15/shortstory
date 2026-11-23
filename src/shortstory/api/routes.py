@@ -5,8 +5,6 @@ This module contains all route handlers for the application, extracted from app.
 to improve code organization and maintainability.
 """
 
-import re
-import uuid
 import logging
 import time
 from typing import TYPE_CHECKING, Optional, Dict, Any
@@ -22,32 +20,25 @@ try:
     from src.shortstory.utils.monitoring import (
         track_story_generation,
         track_active_story_generations,
-        track_background_job
     )
     MONITORING_AVAILABLE = True
 except ImportError:
     MONITORING_AVAILABLE = False
     track_story_generation = None  # type: ignore
     track_active_story_generations = None  # type: ignore
-    track_background_job = None  # type: ignore
-from src.shortstory.genres import get_available_genres, get_genre_config
+from src.shortstory.genres import get_available_genres
 from src.shortstory.templates import (
     get_templates_for_genre, get_all_templates, get_available_template_genres
 )
 from src.shortstory.utils import check_distinctiveness, MAX_WORD_COUNT
-from src.shortstory.utils.story_builder import build_story_data
 from src.shortstory.memorability_scorer import get_memorability_scorer
-from src.shortstory.utils.errors import ValidationError, NotFoundError, ServiceUnavailableError
-from src.shortstory.exports import export_story_from_dict
+from src.shortstory.utils.errors import ValidationError, ServiceUnavailableError
 from src.shortstory.api.helpers import (
     word_count_response,
     build_canonical_story_response,
     get_story_body,
-    get_story_text,
-    get_story_repository,
     get_pipeline,
     validate_story_id,
-    get_story_or_404,
 )
 from src.shortstory.services import (
     StoryValidationService,
@@ -57,16 +48,6 @@ from src.shortstory.services import (
     StoryGenerationService,
     StoryRevisionService,
 )
-
-# Background job support (optional)
-try:
-    from rq_config import get_queue, get_job
-    from src.shortstory.jobs import (
-        generate_story_job, revise_story_job, export_story_job
-    )
-    RQ_AVAILABLE = True
-except ImportError:
-    RQ_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +86,93 @@ def _get_genre_for_error_tracking(validated: Optional[Dict[str, Any]] = None) ->
         return data.get('genre', 'unknown')
     except Exception:
         return "unknown"
+
+
+def _get_request_job_service() -> JobService:
+    """
+    Get the shared JobService configured for the current Flask request context.
+
+    Returns:
+        JobService instance with flask_app set to current_app
+    """
+    _job_service.flask_app = current_app
+    return _job_service
+
+
+def _track_failed_story_generation(
+    generation_start_time: float,
+    validated: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Track failed story generation telemetry when monitoring is enabled.
+
+    Args:
+        generation_start_time: Unix timestamp when generation started
+        validated: Validated generation input dict, if available
+    """
+    if not (MONITORING_AVAILABLE and track_story_generation):
+        return
+
+    generation_duration = time.time() - generation_start_time
+    track_story_generation(
+        genre=_get_genre_for_error_tracking(validated),
+        duration=generation_duration,
+        word_count=0,
+        status='error'
+    )
+
+
+def _get_json_with_required_text(missing_text_message: str) -> Dict[str, Any]:
+    """
+    Get request JSON payload and ensure a 'text' field is present.
+
+    Args:
+        missing_text_message: Error message when text is missing
+
+    Returns:
+        Parsed request payload dictionary
+
+    Raises:
+        ValidationError: If request body is not a JSON object or text is missing
+    """
+    data = request.get_json()
+    if not isinstance(data, dict) or 'text' not in data:
+        raise ValidationError(
+            missing_text_message,
+            details={"field": "text"}
+        )
+    return data
+
+
+def _raise_invalid_input_validation_error(error_msg: str) -> None:
+    """
+    Raise a standardized ValidationError for invalid user input.
+
+    Args:
+        error_msg: Original error message
+
+    Raises:
+        ValidationError: With consistent invalid-input formatting
+    """
+    raise ValidationError(
+        f"Invalid input: {error_msg}. Please check your story parameters.",
+        details={"original_error": error_msg}
+    )
+
+
+def _handle_network_exception(error_msg: str, user_message: str) -> None:
+    """
+    Log and translate network exceptions to ServiceUnavailableError.
+
+    Args:
+        error_msg: Original exception message for logging
+        user_message: User-facing error message
+
+    Raises:
+        ServiceUnavailableError: With network service type and user message
+    """
+    logger.warning(f"Network error: {error_msg}")
+    raise ServiceUnavailableError("network", user_message)
 
 def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
     """
@@ -178,6 +246,7 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             ServiceUnavailableError: If AI generation service is unavailable
         """
         generation_start_time = time.time()
+        validated: Optional[Dict[str, Any]] = None
         try:
             data = request.get_json() or {}
             use_background = data.get('background', False)
@@ -197,11 +266,11 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
 
             # Check if background jobs are enabled and requested
             # Update job service with current app context
-            _job_service.flask_app = current_app
-            if _job_service.is_background_jobs_enabled() and use_background:
+            job_service = _get_request_job_service()
+            if job_service.is_background_jobs_enabled() and use_background:
                 # Enqueue background job using service
                 max_word_count = data.get('max_word_count', MAX_WORD_COUNT)
-                result = _job_service.enqueue_story_generation(
+                result = job_service.enqueue_story_generation(
                     idea=idea,
                     character=character,
                     theme=theme,
@@ -252,19 +321,9 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             raise
         except (ConnectionError, TimeoutError) as e:
             error_msg = str(e)
-            logger.warning(f"Network error during story generation: {error_msg}")
-            # Track failed story generation
-            generation_duration = time.time() - generation_start_time
-            genre = _get_genre_for_error_tracking(validated if 'validated' in locals() else None)
-            if MONITORING_AVAILABLE and track_story_generation:
-                track_story_generation(
-                    genre=genre,
-                    duration=generation_duration,
-                    word_count=0,
-                    status='error'
-                )
-            raise ServiceUnavailableError(
-                "network",
+            _track_failed_story_generation(generation_start_time, validated)
+            _handle_network_exception(
+                error_msg,
                 "Network error occurred. Please check your connection and try again."
             )
         except KeyError as e:
@@ -272,54 +331,24 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             logger.error(
                 f"Missing required field during story generation: {error_msg}",
                 exc_info=True)
-            # Track failed story generation
-            generation_duration = time.time() - generation_start_time
-            genre = _get_genre_for_error_tracking(validated if 'validated' in locals() else None)
-            if MONITORING_AVAILABLE and track_story_generation:
-                track_story_generation(
-                    genre=genre,
-                    duration=generation_duration,
-                    word_count=0,
-                    status='error'
-                )
+            _track_failed_story_generation(generation_start_time, validated)
             raise ValidationError(
                 f"Missing required field: {error_msg}. Please check your story parameters.",
                 details={"field": error_msg, "original_error": error_msg}
             )
         except ValueError as e:
             error_msg = str(e)
-            # Track failed story generation
-            generation_duration = time.time() - generation_start_time
-            genre = _get_genre_for_error_tracking(validated if 'validated' in locals() else None)
-            if MONITORING_AVAILABLE and track_story_generation:
-                track_story_generation(
-                    genre=genre,
-                    duration=generation_duration,
-                    word_count=0,
-                    status='error'
-                )
+            _track_failed_story_generation(generation_start_time, validated)
             if "premise" in error_msg.lower() or "validation" in error_msg.lower():
                 raise ValidationError(
                     f"Validation error: {error_msg}. Please refine your story idea or character description.",
                     details={
                         "field": "premise",
                         "original_error": error_msg})
-            raise ValidationError(
-                f"Invalid input: {error_msg}. Please check your story parameters.",
-                details={"original_error": error_msg}
-            )
+            _raise_invalid_input_validation_error(error_msg)
         except Exception as e:
             error_msg = str(e)
-            # Track failed story generation
-            generation_duration = time.time() - generation_start_time
-            genre = _get_genre_for_error_tracking(validated if 'validated' in locals() else None)
-            if MONITORING_AVAILABLE and track_story_generation:
-                track_story_generation(
-                    genre=genre,
-                    duration=generation_duration,
-                    word_count=0,
-                    status='error'
-                )
+            _track_failed_story_generation(generation_start_time, validated)
             # Check for common API errors
             if "api" in error_msg.lower() or "key" in error_msg.lower():
                 logger.warning(f"API error during story generation: {error_msg}")
@@ -418,24 +447,21 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
         Raises:
             ValidationError: If text field is missing
         """
-        data = request.get_json()
-        if not data or 'text' not in data:
-            raise ValidationError(
-                "Text content is required for validation.",
-                details={"field": "text"}
-            )
+        data = _get_json_with_required_text(
+            "Text content is required for validation.")
+        text = data['text']
 
         # Validate text structure using service
-        _validation_service.validate_story_body(data['text'])
+        _validation_service.validate_story_body(text)
 
         # Get request-scoped pipeline instance for word count validation
         pipeline = get_pipeline()
         word_count, is_valid = pipeline.word_validator.validate(
-            data['text'], raise_error=False)
+            text, raise_error=False)
         response = {
             **word_count_response(word_count),
             "is_valid": is_valid,
-            "distinctiveness": check_distinctiveness(data['text'])
+            "distinctiveness": check_distinctiveness(text)
         }
 
         # Optionally include memorability score if requested
@@ -445,7 +471,7 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             outline = data.get('outline')
             premise = data.get('premise')
             response['memorability'] = scorer.score_story(
-                text=data['text'],
+                text=text,
                 character=character,
                 outline=outline,
                 premise=premise
@@ -476,16 +502,13 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
                 "detailed_analysis": {...}
                 }
                 """
-        data = request.get_json()
-        if not data or 'text' not in data:
-            raise ValidationError(
-                "Text content is required for memorability scoring.",
-                details={"field": "text"}
-            )
+        data = _get_json_with_required_text(
+            "Text content is required for memorability scoring.")
+        text = data['text']
 
         scorer = get_memorability_scorer()
         result = scorer.score_story(
-            text=data['text'],
+            text=text,
             character=data.get('character'),
             outline=data.get('outline'),
             premise=data.get('premise')
@@ -631,42 +654,26 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             ValidationError: If story has no content to revise
             ServiceUnavailableError: If revision fails
         """
-        story = get_story_or_404(story_id)
-        if story is None:
-            raise NotFoundError("Story", story_id)
-
-        # Get current story body (pure narrative text)
-        current_body = get_story_body(story)
-        if not current_body:
-            raise ValidationError(
-                "Story has no content to revise.",
-                details={"story_id": story_id}
-            )
-
-        # Check if background jobs are enabled and requested
-        data = request.get_json() or {}
-        use_background = data.get('background', False)
-        _job_service.flask_app = current_app
-        
-        if _job_service.is_background_jobs_enabled() and use_background:
-            # Enqueue background job using service
+        try:
+            data = request.get_json() or {}
+            use_background = data.get('background', False)
             use_llm = data.get('use_llm', True)
-            result = _job_service.enqueue_story_revision(
-                story_id=story_id,
-                use_llm=use_llm
-            )
-            logger.info(
-                f"Enqueued story revision job: {result['job_id']} for story {story_id}")
-            return jsonify(result), 202  # Accepted
 
-            # Synchronous revision using service
-            use_llm = data.get('use_llm', True)
+            job_service = _get_request_job_service()
+            if job_service.is_background_jobs_enabled() and use_background:
+                result = job_service.enqueue_story_revision(
+                    story_id=story_id,
+                    use_llm=use_llm
+                )
+                logger.info(
+                    f"Enqueued story revision job: {result['job_id']} for story {story_id}")
+                return jsonify(result), 202  # Accepted
+
+            # Synchronous revision uses service-level validation and persistence.
             story = _revision_service.revise_story(
                 story_id=story_id,
                 use_llm=use_llm
             )
-            
-            # Return canonical response format
             return jsonify(
                 build_canonical_story_response(story, story_id=story_id))
         except ValidationError:
@@ -674,16 +681,11 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             raise
         except ValueError as e:
             error_msg = str(e)
-            logger.warning(f"Invalid input during revision: {error_msg}")
-            raise ValidationError(
-                f"Invalid input: {error_msg}. Please check your story parameters.",
-                details={"original_error": error_msg}
-            )
+            _raise_invalid_input_validation_error(error_msg)
         except (ConnectionError, TimeoutError) as e:
             error_msg = str(e)
-            logger.warning(f"Network error during revision: {error_msg}")
-            raise ServiceUnavailableError(
-                "network",
+            _handle_network_exception(
+                error_msg,
                 "Network error occurred during revision. Please check your connection and try again."
             )
         except Exception as e:
@@ -793,11 +795,11 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
         
         # Check if background jobs are enabled and requested
         use_background = request.args.get('background', 'false').lower() == 'true'
-        _job_service.flask_app = current_app
+        job_service = _get_request_job_service()
         
-        if _job_service.is_background_jobs_enabled() and use_background:
+        if job_service.is_background_jobs_enabled() and use_background:
             # Enqueue background job using service
-            result = _job_service.enqueue_story_export(
+            result = job_service.enqueue_story_export(
                 story_id=story_id,
                 format_type=format_type
             )
@@ -834,8 +836,8 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             ServiceUnavailableError: If background jobs are not available
         """
         # Get job status using service
-        _job_service.flask_app = current_app
-        status = _job_service.get_job_status(job_id)
+        job_service = _get_request_job_service()
+        status = job_service.get_job_status(job_id)
         return jsonify(status)
 
     @flask_app.route('/api/job/<job_id>/result', methods=['GET'])
@@ -859,6 +861,6 @@ def register_routes(flask_app: 'Flask', limiter_instance: 'Limiter') -> None:
             ServiceUnavailableError: If job failed or background jobs unavailable
         """
         # Get job result using service
-        _job_service.flask_app = current_app
-        result = _job_service.get_job_result(job_id)
+        job_service = _get_request_job_service()
+        result = job_service.get_job_result(job_id)
         return jsonify(result)
