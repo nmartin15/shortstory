@@ -50,7 +50,7 @@ jobs:
           --tb=short
     
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       with:
         file: ./coverage.xml
         flags: python-${{ matrix.python-version }}
@@ -96,7 +96,7 @@ jobs:
       run: npm test -- --coverage --ci
     
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       with:
         file: ./coverage/coverage-final.json
         flags: javascript
