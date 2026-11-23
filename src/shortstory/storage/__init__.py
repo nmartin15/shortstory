@@ -1,0 +1,41 @@
+"""Story workspace storage (Markdown on disk)."""
+
+from .story_fs import (
+    DEFAULT_STORIES_ROOT,
+    StoryNotFoundError,
+    StoryPaths,
+    get_story_paths,
+    init_story,
+    is_outline_approved,
+    is_premise_approved,
+    list_scene_files,
+    list_stories,
+    read_meta,
+    read_text,
+    require_story,
+    scene_path,
+    slugify,
+    update_meta_field,
+    validate_slug,
+    write_text,
+)
+
+__all__ = [
+    "DEFAULT_STORIES_ROOT",
+    "StoryNotFoundError",
+    "StoryPaths",
+    "get_story_paths",
+    "init_story",
+    "is_outline_approved",
+    "is_premise_approved",
+    "list_scene_files",
+    "list_stories",
+    "read_meta",
+    "read_text",
+    "require_story",
+    "scene_path",
+    "slugify",
+    "update_meta_field",
+    "validate_slug",
+    "write_text",
+]

@@ -1,0 +1,36 @@
+# Your style bible — voice references must be YOUR writing only.
+# The model never imitates named living authors or copyrighted franchises.
+
+pov: third_limited
+tense: past
+tone: precise, grounded, emotionally specific
+rhythm: Mix short declarative sentences with longer observational ones. Prefer concrete nouns over abstractions.
+
+ban_em_dashes: true
+
+banned_phrases:
+  - a single tear
+  - the air was thick with tension
+  - little did they know
+  - in that moment
+  - her heart pounded
+  - his eyes widened
+  - time seemed to stand still
+  - without warning
+  - out of nowhere
+  - a shiver ran down
+  - the weight of the world
+  - proverbial
+  - delve
+  - tapestry
+  - symphony of
+  - dance of light
+  - unspoken words hung
+  - something shifted
+  - for reasons they couldn't explain
+
+# Paste short paragraphs from your own published or private writing only.
+voice_references:
+  - |
+    Replace this with a paragraph from your own work.
+    Keep references short. They steer rhythm and diction — not plot.
