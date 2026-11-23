@@ -13,7 +13,7 @@
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "jest-fetch-mock": "^3.0.3",
-    "jsdom": "^27.4.0"
+    "jsdom": "^31.0.1"
   },
   "jest": {
     "testEnvironment": "jsdom",
