@@ -75,8 +75,13 @@ def generate_premises(engine: EngineContext) -> str:
         stage="premise",
         stage_instructions=load_prompt("premise"),
         prompt=prompt,
-        max_tokens=2500,
+        max_tokens=4000,
     )
+    if not result.text.strip():
+        raise RuntimeError(
+            "Premise generation returned empty text. "
+            "Try DRAFT_MODEL=deepseek/deepseek-v4.1-flash in .env and rerun."
+        )
     body = (
         "# Premise options (pick or edit one, then approve)\n\n"
         "Status: **awaiting your approval** — no prose will be drafted until you approve.\n\n"
@@ -122,8 +127,11 @@ def generate_outline(
         stage="outline",
         stage_instructions=load_prompt("outline"),
         prompt=prompt,
-        max_tokens=3500,
+        # Reasoning models spend many tokens internally; leave headroom for content.
+        max_tokens=12000,
     )
+    if not result.text.strip():
+        raise RuntimeError("Outline generation returned empty text.")
     body = (
         f"# Outline ({framework}, target {target_words} words)\n\n"
         "Status: **awaiting your approval** — drafting is locked until you approve.\n\n"
@@ -206,7 +214,8 @@ def draft_scenes(
             continue
         target_match = re.search(r"target_words\s*:\s*(\d+)", brief["body"], flags=re.I)
         target_words = int(target_match.group(1)) if target_match else 500
-        max_tokens = min(max(int(target_words * 1.6), 800), 6000)
+        # ~2 tokens/word for prose + large reasoning-headroom for OpenRouter models
+        max_tokens = min(max(int(target_words * 4), 6000), 16000)
         prompt = (
             f"Scene {index} brief:\n{brief['body']}\n\n"
             f"Continuity context:\n{_prior_context(engine.paths, index)}\n\n"
@@ -304,17 +313,29 @@ def continuity_check(engine: EngineContext) -> str:
     _require_draft_ready(engine.paths)
     scenes = []
     for path in list_scene_files(engine.paths):
-        scenes.append(f"### {path.name}\n{read_text(path)}")
+        text = re.sub(r"^>\s*\*\*RAW DRAFT\*\*.*\n\n", "", read_text(path), count=1).strip()
+        words = text.split()
+        # Compress: opening + closing snippet per scene (full dump burns reasoning budget)
+        if len(words) > 220:
+            snippet = " ".join(words[:120]) + " […] " + " ".join(words[-80:])
+        else:
+            snippet = text
+        scenes.append(f"### {path.name} ({count_words(text)} words)\n{snippet}")
     if not scenes:
         raise RuntimeError("No scenes to check. Draft scenes first.")
-    prompt = "Full draft scenes:\n\n" + "\n\n".join(scenes)
+    outline = read_text(engine.paths.outline)
+    prompt = (
+        f"Outline (for name/timeline reference):\n{outline[:4000]}\n\n"
+        f"Scene excerpts:\n\n" + "\n\n".join(scenes)
+    )
     result = generate_logged(
         engine,
         stage="continuity",
         stage_instructions=load_prompt("continuity"),
         prompt=prompt,
-        max_tokens=2500,
+        max_tokens=12000,
         temperature=0.2,
+        include_style=False,
     )
     body = result.text.strip() + "\n"
     write_text(engine.paths.continuity, body)
@@ -322,8 +343,29 @@ def continuity_check(engine: EngineContext) -> str:
     return body
 
 
-def assemble_draft(paths: StoryPaths) -> str:
-    """Stitch scenes into draft_v1.md with a word-count report."""
+_BANNER_RE = re.compile(
+    r"(?is)^(?:>\s*)?\*{0,2}RAW DRAFT\*{0,2}[^\n]*\n+",
+)
+
+
+def _clean_scene_prose(text: str) -> str:
+    """Strip draft banners and leftover labels from a scene file."""
+    text = _BANNER_RE.sub("", text or "", count=1).strip()
+    # Drop accidental mid-file banner lines the model sometimes echoes
+    lines = [
+        line
+        for line in text.splitlines()
+        if not re.search(r"(?i)raw draft", line)
+    ]
+    return "\n".join(lines).strip()
+
+
+def assemble_draft(paths: StoryPaths, *, print_title: Optional[str] = None) -> str:
+    """Stitch scenes into continuous short-story prose for rewriting/print.
+
+    Internal scene files stay as scaffolding. The assembled draft uses blank-line
+    breaks between movements — not screenplay-style scene headings.
+    """
     _require_draft_ready(paths)
     scene_texts: Dict[int, str] = {}
     for path in list_scene_files(paths):
@@ -331,22 +373,34 @@ def assemble_draft(paths: StoryPaths) -> str:
             idx = int(path.stem)
         except ValueError:
             continue
-        # Strip the raw-draft banner from scene files for assembly body
-        text = read_text(path)
-        text = re.sub(r"^>\s*\*\*RAW DRAFT\*\*.*\n\n", "", text, count=1)
-        scene_texts[idx] = text.strip()
+        cleaned = _clean_scene_prose(read_text(path))
+        if cleaned:
+            scene_texts[idx] = cleaned
     if not scene_texts:
         raise RuntimeError("No scenes found to assemble.")
 
     meta = read_meta(paths)
     target = int(meta.get("target_words") or sum_target_words(read_text(paths.outline)) or 0)
-    body_parts = [DRAFT_BANNER, f"# Draft v1 — {paths.root.name}\n"]
+    title = print_title or meta.get("title") or "The Heron"
+    body_parts = [
+        DRAFT_BANNER,
+        f"# {title}\n",
+        "_Raw draft for rewrite — not a finished story._\n",
+    ]
+    # Continuous prose: blank line between movements, no Scene N headings
     for idx in sorted(scene_texts):
-        body_parts.append(f"\n## Scene {idx}\n\n{scene_texts[idx]}\n")
-    body_parts.append("\n---\n")
+        body_parts.append(scene_texts[idx])
+        body_parts.append("")
+    body_parts.append("---\n")
     body_parts.append(word_count_report(scene_texts, target_total=target or None))
     assembled = "\n".join(body_parts).strip() + "\n"
     write_text(paths.draft, assembled)
+    # Also write a clean print twin without the trailing analytics block
+    print_body = "\n\n".join(
+        [f"# {title}", ""]
+        + [scene_texts[idx] for idx in sorted(scene_texts)]
+    ).strip() + "\n"
+    write_text(paths.root / "print.md", print_body)
     update_meta_field(paths, "status", "assembled")
     return assembled
 

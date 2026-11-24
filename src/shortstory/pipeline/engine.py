@@ -76,6 +76,7 @@ def generate_logged(
     prompt: str,
     max_tokens: int = 4096,
     temperature: Optional[float] = None,
+    include_style: bool = True,
 ) -> GenerateResult:
     """Run one model call with budget check, cost log, and provenance.
 
@@ -86,6 +87,7 @@ def generate_logged(
         prompt: User/content prompt (variable portion last).
         max_tokens: Completion budget.
         temperature: Optional override.
+        include_style: When False, skip the style bible (useful for continuity).
 
     Returns:
         GenerateResult from the provider.
@@ -93,7 +95,14 @@ def generate_logged(
     Raises:
         BudgetExceededError: If the projected cost exceeds the cap.
     """
-    system = build_system_prefix(engine.style, stage_instructions)
+    if include_style:
+        system = build_system_prefix(engine.style, stage_instructions)
+    else:
+        system = (
+            "You are a continuity checker for a private short-story draft.\n"
+            "Report contradictions only. Do not rewrite prose.\n\n"
+            f"## Stage instructions\n{stage_instructions.strip()}"
+        )
     temp = engine.temperature if temperature is None else temperature
 
     # Pre-check against a conservative projected cost using max_tokens as out estimate

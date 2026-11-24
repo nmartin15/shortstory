@@ -113,11 +113,19 @@ class OpenAICompatibleProvider(BaseProvider):
         last_error: Optional[Exception] = None
         for attempt in range(1, self._max_retries + 1):
             try:
+                # Disable/minimize chain-of-thought so reasoning models don't
+                # burn max_tokens and return empty content (finish_reason=length).
+                # Prefer a large enough budget: reasoning models count thinking
+                # toward max_tokens and can return empty content when truncated.
+                effective_max = max(max_tokens, 2048)
                 response = self._client.chat.completions.create(
                     model=self._model_name,
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_tokens=effective_max,
+                    extra_body={
+                        "reasoning": {"effort": "minimal", "exclude": True},
+                    },
                 )
                 return self._parse_response(response)
             except Exception as exc:  # noqa: BLE001 - surface provider errors cleanly
@@ -144,7 +152,23 @@ class OpenAICompatibleProvider(BaseProvider):
         if choice is None or choice.message is None:
             raise RuntimeError("OpenRouter returned an empty response")
 
-        text = (choice.message.content or "").strip()
+        message = choice.message
+        text = (message.content or "").strip()
+        if not text:
+            # Some reasoning models put usable text only in reasoning fields
+            for attr in ("reasoning", "reasoning_content"):
+                alt = getattr(message, attr, None)
+                if isinstance(alt, str) and alt.strip():
+                    text = alt.strip()
+                    break
+        if not text:
+            finish_reason = getattr(choice, "finish_reason", None)
+            raise RuntimeError(
+                f"OpenRouter returned empty content for model '{self._model_name}' "
+                f"(finish_reason={finish_reason}). Try DRAFT_MODEL=deepseek/deepseek-v4.1-flash "
+                "or raise max_tokens."
+            )
+
         usage = getattr(response, "usage", None)
         prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
         completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
